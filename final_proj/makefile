@@ -1,4 +1,4 @@
-FC90 = gfortran -openmp
+FC90 = gfortran -fopenmp
 vector_files = mod_file.f90 main.f90
 
 all:main_exe
