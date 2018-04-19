@@ -52,7 +52,8 @@ contains
     integer, parameter :: my_kind = selected_real_kind(16,300)
     real(kind=my_kind), allocatable, dimension(:,:), intent(inout) :: K
     real(kind=my_kind), allocatable, dimension(:,:), intent(out) :: K_inv
-    integer :: i,j,N
+    integer :: i,j,N,iam,tot,numthreads
+    integer,external :: omp_get_thread_num, omp_get_num_threads
 
     N = size(K(1,:))
     
@@ -64,46 +65,81 @@ contains
        K_inv(i,i) = real(1,my_kind)
     end do
 
+    i=1
 
-
-
+    if (N<8) then
+       numthreads=1
+    else
+       numthreads=8
+    end if
     
-    do i=1,N
-       K_inv(i,:) = (1/K(i,i))*K_inv(i,:)
-       K(i,:) = (1/K(i,i))*K(i,:)
+    
+    call omp_set_num_threads(numthreads)
+    
+    !$omp parallel &
+    !$omp shared(K,K_inv,N,i) &
+    !$omp private(iam,j)
 
-       !$omp parallel &
-       !$omp shared(K,K_inv,N,i) &
-       !$omp private(j)
+    iam = omp_get_thread_num()
+    
+    do while (i <= N)
+       
+       if (iam == 0) then 
 
+          K_inv(i,:) = (1/K(i,i))*K_inv(i,:)
+          K(i,:) = (1/K(i,i))*K(i,:)
+
+       end if
+
+       !$omp barrier
+    
        !$omp do
        do j=i+1,N
+          
           K_inv(j,:) = K_inv(j,:) - K(j,i)*K_inv(i,:)
           K(j,:) = K(j,:) - K(j,i)*K(i,:)
+          
        end do
        !$omp end do
 
-       !$omp end parallel
+       !$omp barrier
        
-       end do
+       if (iam == 0) then
+          i = i + 1
+       end if
 
-    do i=0,N-2
+       !$omp barrier
+       
+    end do    
+    
+    if (iam == 0) then
+       i = 1
+    end if
 
-       !$omp parallel &
-       !$omp shared(K,K_inv,N,i) &
-       !$omp private(j)
-
+    !$omp barrier
+    
+    do while (i <= N)
+       
        !$omp do
-       do j=i+1,N-1
-          K_inv(N-j,:) = K_inv(N-j,:) - (K(N-j,N-i))*(K_inv(N-i,:))
-          K(N-j,:) = K(N-j,:) - (K(N-j,N-i))*(K(N-i,:))
+       do j=i,N-1
+          K_inv(N-j,:) = K_inv(N-j,:) - (K(N-j,N-i+1))*(K_inv(N-i+1,:))
+          K(N-j,:) = K(N-j,:) - (K(N-j,N-i+1))*(K(N-i+1,:))
        end do
        !$omp end do
 
-       !$omp end parallel
-              
-    end do
+       !$omp barrier
+       
+       if (iam == 0) then
+          i=i+1
+       end if
 
+       !$omp barrier
+       
+    end do
+    
+    !$omp barrier
+    !$omp end parallel
+    
   end subroutine row_red_omp
 
   subroutine gen_msg_mat(N,file_name,M)

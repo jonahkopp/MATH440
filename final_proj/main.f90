@@ -1,7 +1,8 @@
 program main
 
-  use mod_file
   use omp_lib
+  use mod_file
+
   implicit none
 
   !Declare variables and parameters
@@ -11,6 +12,7 @@ program main
   character,allocatable,dimension(:,:) :: C
   integer :: i,j,N
   real(kind=my_kind) :: timeseed,time_start,time_end
+  
   character(len=20) :: file_name
 
   call cpu_time(timeseed)
@@ -20,7 +22,7 @@ program main
   print *, "Enter the file name:"
   read(*,*) file_name
 
-  N = 100
+  N = 20
 
   call gen_msg_mat(N,file_name,M)
 
@@ -50,9 +52,9 @@ program main
 
   K_orig = K
 
-  call cpu_time(time_start)
+  time_start = omp_get_wtime()
   call row_red(K,K_inv)
-  call cpu_time(time_end)
+  time_end = omp_get_wtime()
 
   print *,"seq time = ",time_end-time_start
   print *,''
@@ -61,10 +63,10 @@ program main
   
   K = K_orig
 
-  call cpu_time(time_start)
+  time_start = omp_get_wtime()
   call row_red_omp(K,K_inv)
-  call cpu_time(time_end)
-  
+  time_end = omp_get_wtime()
+   
   print *,"parallel time = ",time_end-time_start
   print *,''
 
@@ -75,6 +77,9 @@ program main
 
   M = nint(E1)
 
+  print *,size(M(:,1)),'rows'
+  print *,size(M(1,:)),'columns'
+  
   !print *, M
 
   C = char(M)
@@ -83,8 +88,6 @@ program main
   print *, C(2,:)
   print *, C(3,:)
   print *, C(4,:)
-  print *, C(5,:)
-  print *, C(6,:)
   
 
 ! do i = 1,N
