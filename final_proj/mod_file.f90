@@ -151,8 +151,6 @@ contains
     integer, allocatable, dimension(:,:), intent(out) :: M
     character(len=20), intent(in) :: file_name
     character(len=2000) :: test_str
-    !character(len=20)  :: test_str2
-    !character(len=20) :: test_str3
     integer :: i, j, num_cols
     integer, allocatable, dimension(:) :: int_vec
     
@@ -200,26 +198,18 @@ contains
        end do
     end do
 
-    !print *, M
-       
-    !print *, int_vec
-
-    !do i = 1,len(test_str)
-
-       !test_str2(i:i) = char(int_vec(i))
-
-    !end do
-    
-    !print *, test_str2
-
     deallocate(int_vec)
     
-    !test_str2 = ichar(test_str)
-
-    !test_str3 = char(test_str2)
-    !print *, test_str3
-    
   end subroutine gen_msg_mat
+
+  subroutine par_mat_mul(A,B,N)
+
+    implicit none
+
+    !Declare variables
+     
+
+  end subroutine par_mat_mul
   
     
 end module mod_file
