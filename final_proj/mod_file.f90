@@ -1,4 +1,5 @@
 module mod_file
+use mpi
 contains
 
   subroutine row_red(K,K_inv)
@@ -154,7 +155,7 @@ contains
     integer :: i, j, num_cols
     integer, allocatable, dimension(:) :: int_vec
     
-    open(unit=1,file=file_name)
+    open(unit=1,file=file_name,action='read')
 
     read(1,'(A)') test_str
        
@@ -202,14 +203,75 @@ contains
     
   end subroutine gen_msg_mat
 
-  subroutine par_mat_mul(A,B,N)
+  subroutine par_mat_mul(K,M,A)
 
     implicit none
 
     !Declare variables
-     
+    integer, parameter :: my_kind = selected_real_kind(16,300)
+    real(kind=my_kind), allocatable, dimension(:,:), intent(in) :: K,M
+    real(kind=my_kind), allocatable, dimension(:,:), intent(out) :: A
+    integer :: i,j,p
+    
+    allocate(A(size(K(:,1)),size(M(1,:))))
 
+    A = 0
+    
+    !$omp parallel &
+    !$omp shared(K,M,A) &
+    !$omp private(i,j,p)
+
+    !$omp do
+    
+    do i=1,size(K(:,1))
+       do j=1,size(M(1,:))
+          do p=1,size(K(1,:))
+             A(i,j) = A(i,j) + K(i,p)*M(p,j)
+          end do
+       end do
+    end do
+
+    !$omp end do
+
+    !$omp end parallel
+    
   end subroutine par_mat_mul
+
+  subroutine par_mat_mul_int(K,M,A)
+
+    implicit none
+
+    !Declare variables
+    integer, parameter :: my_kind = selected_real_kind(16,300)
+    real(kind=my_kind), allocatable, dimension(:,:), intent(in) :: K
+    integer,allocatable,dimension(:,:),intent(in) :: M
+    real(kind=my_kind), allocatable, dimension(:,:), intent(out) :: A
+    integer :: i,j,p
+
+    allocate(A(size(K(:,1)),size(M(1,:))))
+
+    A = 0
+
+    !$omp parallel &
+    !$omp shared(K,M,A) &
+    !$omp private(i,j,p)
+
+    !$omp do
+
+    do i=1,size(K(:,1))
+       do j=1,size(M(1,:))
+          do p=1,size(K(1,:))
+             A(i,j) = A(i,j) + K(i,p)*M(p,j)
+          end do
+       end do
+    end do
+
+    !$omp end do
+
+    !$omp end parallel
+
+  end subroutine par_mat_mul_int
+
   
     
 end module mod_file
