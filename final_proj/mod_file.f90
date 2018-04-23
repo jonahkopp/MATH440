@@ -41,10 +41,7 @@ contains
   end subroutine row_red
 
 
-
-
-  !parallel algorithm below
-
+  !parallel algorithm for row reduction below
   subroutine row_red_omp(K,K_inv)
 
     implicit none
@@ -271,7 +268,5 @@ contains
     !$omp end parallel
 
   end subroutine par_mat_mul_int
-
-  
     
 end module mod_file
