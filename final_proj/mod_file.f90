@@ -42,18 +42,19 @@ contains
 
 
   !parallel algorithm for row reduction below
-  subroutine row_red_omp(K,K_inv)
+  subroutine row_red_omp(K,K_inv,N)
 
     implicit none
     
     !Declare variables and parameters
     integer, parameter :: my_kind = selected_real_kind(16,300)
+    integer, intent(in) :: N
     real(kind=my_kind), allocatable, dimension(:,:), intent(inout) :: K
     real(kind=my_kind), allocatable, dimension(:,:), intent(out) :: K_inv
-    integer :: i,j,N,iam,tot,numthreads
+    integer :: i,j,iam,tot,numthreads
     integer,external :: omp_get_thread_num, omp_get_num_threads
 
-    N = size(K(1,:))
+    !N = size(K(1,:))
     
     allocate(K_inv(N,N))
 
@@ -62,7 +63,7 @@ contains
     do i=1,N
        K_inv(i,i) = real(1,my_kind)
     end do
-
+    
     i=1
 
     if (N<8) then
@@ -71,7 +72,6 @@ contains
        numthreads=8
     end if
     
-    
     call omp_set_num_threads(numthreads)
     
     !$omp parallel &
@@ -79,8 +79,12 @@ contains
     !$omp private(iam,j)
 
     iam = omp_get_thread_num()
+
+    !$omp barrier
     
     do while (i <= N)
+
+       !$omp barrier
        
        if (iam == 0) then 
 
@@ -88,7 +92,7 @@ contains
           K(i,:) = (1/K(i,i))*K(i,:)
 
        end if
-
+       
        !$omp barrier
     
        !$omp do
@@ -108,7 +112,9 @@ contains
 
        !$omp barrier
        
-    end do    
+    end do
+
+    !$omp barrier
     
     if (iam == 0) then
        i = 1

@@ -25,7 +25,7 @@ program main
   tag = 0
 
   !Set N to be the number of rows/cols of the key matrix, the number of rows of rows of the message matrix/encoded matrix
-  N = 100
+  N = 400
   
   if (my_rank == master) then
   
@@ -46,20 +46,23 @@ program main
      msg_cols = size(M(1,:))
 
   end if
-  
+
+  !Broadcast the size of the message to each core
   call mpi_bcast(msg_rows,1,mpi_integer,master,mpi_comm_world,ierror)
   call mpi_bcast(msg_cols,1,mpi_integer,master,mpi_comm_world,ierror)
-
-  call mpi_barrier(mpi_comm_world,ierror)
   
+  call mpi_barrier(mpi_comm_world,ierror)
+
+  !All other cores beside master allocate their own message matrix
   if (my_rank .ne. master) then
      allocate(M(msg_rows,msg_cols))
   end if
   
   !call mpi_barrier(mpi_comm_world,ierror)
-  
-  call mpi_bcast(M,size(M(1,:))*size(M(:,1)),mpi_double,master,mpi_comm_world,ierror)
 
+  !Broadcast the message matrix to all cores
+  call mpi_bcast(M,size(M(1,:))*size(M(:,1)),mpi_double,master,mpi_comm_world,ierror)
+  
   allocate(num_rows(num_cores),start_vec(num_cores))
 
   !Set div to the initial number of rows of K that each core will have
@@ -80,7 +83,6 @@ program main
 
   !Start vector contains the starting index of each core's block of rows of K
   start_vec(1) = 1
-  
   do i = 2,num_cores
      start_vec(i) = num_rows(i-1)+start_vec(i-1)
   end do
@@ -104,9 +106,7 @@ program main
       !  print *, start_vec(i)+num_rows(i)-1
       !  call mpi_send(K(start_vec(i):(start_vec(i)+num_rows(i)-1),:),num_rows(i)*N,mpi_double,i-1,tag,mpi_comm_world,ierror)
      !end do
-
-     !print *, "Node ", my_rank, "made it"
-
+     
      K = transpose(K)
      
   end if
@@ -115,13 +115,14 @@ program main
  
   call mpi_barrier(mpi_comm_world,ierror)
   
-  call mpi_scatterv(K,num_rows*N,start_vec*N,mpi_double,K_core,(N/num_cores)*N,mpi_double,master,mpi_comm_world,ierror)
+  call mpi_scatterv(K,num_rows*N,(start_vec-1)*N+1,mpi_double,K_core &
+       ,(N/num_cores)*N,mpi_double,master,mpi_comm_world,ierror)
 
   call mpi_barrier(mpi_comm_world,ierror)
    
   call par_mat_mul(K_core,M,E)
 
-  print *, my_rank
+  call mpi_barrier(mpi_comm_world,ierror)
   
   !If not the master core, then allocate the block of K and call mpi recv so that each core obtains the block of K that was sent by master
   !if (my_rank .ne. master) then
@@ -167,7 +168,9 @@ program main
   if (my_rank == master) then
      !Call the omp parallel row reduction subroutine to get K's inverse
      time_start = omp_get_wtime()
-     call row_red_omp(K,K_inv)
+     
+     call row_red_omp(K,K_inv,N)
+     
      time_end = omp_get_wtime()
    
      print *,"parallel time = ",time_end-time_start
@@ -180,11 +183,14 @@ program main
 
   end if
 
-  allocate(K_core_inv(num_rows(my_rank+1),N))
+  call mpi_barrier(mpi_comm_world,ierror)
 
+  allocate(K_core_inv(num_rows(my_rank+1),N))
+  
   call mpi_barrier(mpi_comm_world,ierror)
   
-  call mpi_scatterv(K_inv,num_rows*N,start_vec*N,mpi_double,K_core_inv,(N/num_cores)*N,mpi_double,master,mpi_comm_world,ierror)
+  call mpi_scatterv(K_inv,num_rows*N,(start_vec-1)*N+1,mpi_double, &
+       K_core_inv,(N/num_cores)*N,mpi_double,master,mpi_comm_world,ierror)
 
   !All other cores recv the blocks of K inverse, as above with the original blocks of K
   !if (my_rank .ne. master) then
@@ -202,12 +208,13 @@ program main
   !end if
 
   allocate(E_whole(msg_rows,msg_cols))
-
+  
   call mpi_barrier(mpi_comm_world,ierror)
   
-  !Trying to get all of E to all of the cores
-  call mpi_allgatherv(E,(N/num_cores)*N,mpi_double,E_whole,num_rows*N,start_vec*N,mpi_double,mpi_comm_world,ierror)
-
+  !Trying to get all of E to all of the cores (CHANGE THIS TO ALLGATHERV WHEN WE FIGURE OUT HOW TO HAVE VARYING NUM_ROWS)
+  call mpi_allgather(E,size(E),mpi_double,E_whole,size(E), &
+       mpi_double,mpi_comm_world,ierror)
+  
   M = real(M,my_kind)
   
   call par_mat_mul(K_core_inv,E_whole,M)
@@ -220,16 +227,25 @@ program main
   if (my_rank == master) then
      allocate(M_whole(msg_rows,msg_cols))
   end if
-  
+
+  print *, size(M)
+
+  if (my_rank == master) then
+     print *, size(M_whole)
+  end if
   
   !gathering the decoded messaage in master
-  !call mpi_gatherv(M_whole,num_rows*N,start_vec*N,mpi_double,M,(N/num_cores)*N,mpi_double,master,mpi_comm_world,ierror)
+  call mpi_gather(M,size(M),mpi_double,M_whole, &
+       size(M_whole),mpi_double,master,mpi_comm_world,ierror)
 
+  print *, my_rank, "made it past last gather call"
+  
   !Convert the integer decoded matrix of integers into their ASCII equivalent characters
   if (my_rank == master) then
-     C = char(nint(M))
+     C = char(nint(M_whole))
      open(unit=3,file='output.txt')
-     write(3,*) M
+     write(3,*) C
+     close(3)
   end if
   
   !Each core writes the decoded message to the output file in order (based on my_rank)
@@ -246,17 +262,21 @@ program main
      !call mpi_barrier(mpi_comm_world,ierror)
   !end do
    
-  !Deallocate all arrays used in main
-  deallocate(K_inv)
-  deallocate(K)
+  !Deallocate all arrays used in master core
+  if (my_rank == master) then
+     deallocate(K_inv)
+     deallocate(K)
+     deallocate(C)
+     deallocate(M_whole)
+  end if
+
+  !Deallocate the arrays that all cores use
   !deallocate(K_orig)
-  !deallocate(E)
+  deallocate(E)
   deallocate(M)
-  deallocate(C)
   deallocate(K_core)
   deallocate(K_core_inv)
   deallocate(E_whole)
-  deallocate(M_whole)
   
   call mpi_finalize(ierror)
   
