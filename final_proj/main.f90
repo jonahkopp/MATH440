@@ -8,8 +8,8 @@ program main
 
   !Declare variables and parameters
   integer, parameter :: my_kind = selected_real_kind(16,300)
-  real(kind=my_kind), allocatable, dimension(:,:) :: K, K_inv, K_orig, K_core, K_core_inv, E, E1, M_core, M_whole, E_whole
-  integer, allocatable, dimension(:,:) :: M
+  real(kind=my_kind), allocatable, dimension(:,:) :: K, K_inv, K_orig, K_core, K_core_inv,M, E, E1, M_core, M_whole, E_whole
+  !integer, allocatable, dimension(:,:) :: M
   character,allocatable,dimension(:,:) :: C
   integer,dimension(mpi_status_size) :: mpi_status
   integer :: i,j,N,ierror,my_rank,num_cores,master,div,rem,tag,msg_rows,msg_cols
@@ -110,24 +110,18 @@ program main
      K = transpose(K)
      
   end if
-
-  print *, my_rank, num_rows(my_rank+1)
-
-  allocate(K_core(num_rows(my_rank+1),N))
-
-  print *, my_rank, size(K_core)
   
+  allocate(K_core(num_rows(my_rank+1),N))
+ 
   call mpi_barrier(mpi_comm_world,ierror)
   
   call mpi_scatterv(K,num_rows*N,start_vec*N,mpi_double,K_core,(N/num_cores)*N,mpi_double,master,mpi_comm_world,ierror)
 
-  print *, my_rank, "made it past scatter"
-
   call mpi_barrier(mpi_comm_world,ierror)
-  
- ! print *, my_rank, K_core(:,1)
-  
-  call par_mat_mul_int(K_core,M,E)
+   
+  call par_mat_mul(K_core,M,E)
+
+  print *, my_rank
   
   !If not the master core, then allocate the block of K and call mpi recv so that each core obtains the block of K that was sent by master
   !if (my_rank .ne. master) then
@@ -213,6 +207,8 @@ program main
   
   !Trying to get all of E to all of the cores
   call mpi_allgatherv(E,(N/num_cores)*N,mpi_double,E_whole,num_rows*N,start_vec*N,mpi_double,mpi_comm_world,ierror)
+
+  M = real(M,my_kind)
   
   call par_mat_mul(K_core_inv,E_whole,M)
 
@@ -227,11 +223,11 @@ program main
   
   
   !gathering the decoded messaage in master
-  call mpi_gatherv(M_whole,num_rows*N,start_vec*N,mpi_double,M,(N/num_cores)*N,mpi_double,master,mpi_comm_world,ierror)
+  !call mpi_gatherv(M_whole,num_rows*N,start_vec*N,mpi_double,M,(N/num_cores)*N,mpi_double,master,mpi_comm_world,ierror)
 
   !Convert the integer decoded matrix of integers into their ASCII equivalent characters
   if (my_rank == master) then
-     C = char(M)
+     C = char(nint(M))
      open(unit=3,file='output.txt')
      write(3,*) M
   end if
@@ -259,7 +255,9 @@ program main
   deallocate(C)
   deallocate(K_core)
   deallocate(K_core_inv)
-
+  deallocate(E_whole)
+  deallocate(M_whole)
+  
   call mpi_finalize(ierror)
   
 end program main

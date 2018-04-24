@@ -145,8 +145,9 @@ contains
     implicit none
 
     !Declare variables
+    integer, parameter :: my_kind = selected_real_kind(16,300)
     integer, intent(in) :: N
-    integer, allocatable, dimension(:,:), intent(out) :: M
+    real(kind=my_kind), allocatable, dimension(:,:), intent(out) :: M
     character(len=20), intent(in) :: file_name
     character(len=2000) :: test_str
     integer :: i, j, num_cols
@@ -185,11 +186,11 @@ contains
 
           if ((i-1)*num_cols+j <= size(int_vec)) then
 
-             M(i,j) = int_vec((i-1)*num_cols+j)
+             M(i,j) = real(int_vec((i-1)*num_cols+j),my_kind)
 
           else
 
-             M(i,j) = rand()*(47-34)+34
+             M(i,j) = real(rand()*(47-34)+34,my_kind)
 
           end if
                     
