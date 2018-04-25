@@ -86,18 +86,19 @@ program main
   do i = 2,num_cores
      start_vec(i) = num_rows(i-1)+start_vec(i-1)
   end do
-  
-  if (my_rank == master) then
+
+  !Each core finds its num_rows(my_rank+1) rows of the key matrix
+  !if (my_rank == master) then
   
      !Allocate matrices
-     allocate(K(N,N))
+     allocate(K_core(num_rows(my_rank+1),N))
      !allocate(K_orig(N,N))
      !allocate(E(size(M(:,1)),size(M(1,:))),E1(size(M(:,1)),size(M(1,:))))
 
      !Generate the key matrix using random numbers reals between 1 and 2
-     do i=1,N
+     do i=1,num_rows(my_rank+1)
         do j=1,N
-           K(i,j) = rand()+1
+           K_core(i,j) = rand()+1
         end do
      end do
      
@@ -107,19 +108,20 @@ program main
       !  call mpi_send(K(start_vec(i):(start_vec(i)+num_rows(i)-1),:),num_rows(i)*N,mpi_double,i-1,tag,mpi_comm_world,ierror)
      !end do
      
-     K = transpose(K)
+     !K = transpose(K)
      
-  end if
+  !end if
   
-  allocate(K_core(num_rows(my_rank+1),N))
+  !allocate(K_core(num_rows(my_rank+1),N))
  
   call mpi_barrier(mpi_comm_world,ierror)
   
-  call mpi_scatterv(K,num_rows*N,(start_vec-1)*N+1,mpi_double,K_core &
-       ,(N/num_cores)*N,mpi_double,master,mpi_comm_world,ierror)
+  !call mpi_scatterv(K,num_rows*N,(start_vec-1)*N+1,mpi_double,K_core &
+   !    ,(N/num_cores)*N,mpi_double,master,mpi_comm_world,ierror)
 
-  call mpi_barrier(mpi_comm_world,ierror)
-   
+  !call mpi_barrier(mpi_comm_world,ierror)
+
+  !Each core calculates its section of the encoded msg matrix, E
   call par_mat_mul(K_core,M,E)
 
   call mpi_barrier(mpi_comm_world,ierror)
@@ -163,6 +165,19 @@ program main
 
   !The following line is necessary only when running sequential (above) AND parallel (below):
   !K = K_orig
+
+  !Allocate the full key matrix
+  allocate(K(N,N))
+
+  !THIS GATHER IS PRODUCING A FULL K MATRIX WITH VERY SMALL VALUES RATHER THAN VALUES BETW 1 AND 2:
+  call mpi_gatherv(K_core,num_rows(my_rank+1)*N,mpi_double,K,num_rows*N, &
+       (start_vec-1)*N+1,mpi_double,master,mpi_comm_world,ierror)
+
+  !Testing if the full K is correct (it is not as of now)
+  if (my_rank == master) then
+     print *, K(1:5,1:5)
+     print *, size(K(1,:)), size(K(:,1))
+  end if
 
   !Obtain K inverse matrix
   if (my_rank == master) then
@@ -212,10 +227,12 @@ program main
   call mpi_barrier(mpi_comm_world,ierror)
   
   !Trying to get all of E to all of the cores (CHANGE THIS TO ALLGATHERV WHEN WE FIGURE OUT HOW TO HAVE VARYING NUM_ROWS)
-  call mpi_allgather(E,size(E),mpi_double,E_whole,size(E), &
+  call mpi_allgather(E,msg_rows*msg_cols,mpi_double,E_whole,msg_rows*msg_cols, &
        mpi_double,mpi_comm_world,ierror)
   
   M = real(M,my_kind)
+
+  print *, E_whole(1,:)
   
   call par_mat_mul(K_core_inv,E_whole,M)
 
@@ -238,6 +255,8 @@ program main
   call mpi_gather(M,size(M),mpi_double,M_whole, &
        size(M_whole),mpi_double,master,mpi_comm_world,ierror)
 
+  !print *, ierror, my_rank
+  
   print *, my_rank, "made it past last gather call"
   
   !Convert the integer decoded matrix of integers into their ASCII equivalent characters
@@ -272,6 +291,8 @@ program main
 
   !Deallocate the arrays that all cores use
   !deallocate(K_orig)
+  deallocate(start_vec)
+  deallocate(num_rows)
   deallocate(E)
   deallocate(M)
   deallocate(K_core)
