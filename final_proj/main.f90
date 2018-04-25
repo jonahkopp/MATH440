@@ -26,13 +26,17 @@ program main
 
   !Set N to be the number of rows/cols of the key matrix, the number of rows of rows of the message matrix/encoded matrix
   N = 400
+
+  call cpu_time(timeseed)
+
+  call srand(int(exp(real(my_rank))))
   
   if (my_rank == master) then
   
-     call cpu_time(timeseed)
+     !call cpu_time(timeseed)
 
      !Seed rng with the cpu time found above
-     call srand(int(timeseed))
+     !call srand(int(timeseed))
 
      !Prompt user for the file name containing the message to be encoded
      print *, "Enter the file name:"
@@ -122,7 +126,7 @@ program main
   !call mpi_barrier(mpi_comm_world,ierror)
 
   !Each core calculates its section of the encoded msg matrix, E
-  call par_mat_mul(K_core,M,E)
+  !call par_mat_mul(K_core,M,E)
 
   call mpi_barrier(mpi_comm_world,ierror)
   
@@ -167,20 +171,36 @@ program main
   !K = K_orig
 
   !Allocate the full key matrix
-  allocate(K(N,N))
+  if (my_rank == master) then
+     allocate(K(N,N))
+  end if
 
+  print *,my_rank,sum(K_core)
+  
   !THIS GATHER IS PRODUCING A FULL K MATRIX WITH VERY SMALL VALUES RATHER THAN VALUES BETW 1 AND 2:
-  call mpi_gatherv(K_core,num_rows(my_rank+1)*N,mpi_double,K,num_rows*N, &
-       (start_vec-1)*N+1,mpi_double,master,mpi_comm_world,ierror)
+  ! num_rows(my_rank+1)*N
+
+  !call mpi_barrier(mpi_comm_world,ierror)
+  !call mpi_gatherv(K_core,num_rows(my_rank+1)*N,mpi_double,K,num_rows*N, &
+  !     (start_vec-1)*N+1,mpi_double,master,mpi_comm_world,ierror)
+
+  
+  
+  call mpi_gather(K_core,N*N/num_cores,mpi_double,K,N*N/num_cores,mpi_double,master,mpi_comm_world,ierror)
+
 
   !Testing if the full K is correct (it is not as of now)
   if (my_rank == master) then
-     print *, K(1:5,1:5)
+     K = transpose(K)
+     print *, K(1,1:5),K(101,1:5),K(201,1:5),K(301,1:5)
      print *, size(K(1,:)), size(K(:,1))
   end if
 
   !Obtain K inverse matrix
   if (my_rank == master) then
+
+     call par_mat_mul(K_core,M,E)
+     
      !Call the omp parallel row reduction subroutine to get K's inverse
      time_start = omp_get_wtime()
      
@@ -196,9 +216,14 @@ program main
         !call mpi_send(K_inv(start_vec(i):(start_vec(i)+num_rows(i)),:),num_rows(i)*N,mpi_double,i-1,tag,mpi_comm_world,ierror)
      !end do
 
-  end if
+  else
 
-  call mpi_barrier(mpi_comm_world,ierror)
+     call par_mat_mul(K_core,M,E)
+
+  end if
+  
+
+  !call mpi_barrier(mpi_comm_world,ierror)
 
   allocate(K_core_inv(num_rows(my_rank+1),N))
   
