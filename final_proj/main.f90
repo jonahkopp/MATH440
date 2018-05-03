@@ -9,7 +9,7 @@ program main
   !Declare variables and parameters
   integer, parameter :: my_kind = kind(0.0d0)
   real(kind=my_kind), allocatable, dimension(:,:) :: K, K_core,K_inv, K_orig, K_core_inv,M, E, E1, M_core, M_whole, E_whole
-  real(kind=my_kind),allocatable,dimension(:) :: K_core_vec,K_vec
+  real(kind=my_kind),allocatable,dimension(:) :: K_core_vec,K_vec,K_inv_vec,K_core_inv_vec,E_vec,E_whole_vec,M_vec,M_whole_vec
   character,allocatable,dimension(:,:) :: C
   integer,dimension(mpi_status_size) :: mpi_status
   integer :: i,j,N,ierror,my_rank,num_cores,master,div,rem,tag,msg_rows,msg_cols
@@ -25,7 +25,7 @@ program main
   tag = 0
 
   !Set N to be the number of rows/cols of the key matrix, the number of rows of rows of the message matrix/encoded matrix
-  N = 400
+  N = 100
 
   call cpu_time(timeseed)
 
@@ -113,86 +113,133 @@ program main
      end do
   end do
 
-  print *,'sum of K = ',sum(K_core),'vector',sum(K_core_vec)  
-  
-  call mpi_barrier(mpi_comm_world,ierror)
-  
-  call mpi_gather(K_core_vec,N*N/num_cores,mpi_double,K_vec,N*N/num_cores,mpi_double,master,mpi_comm_world,ierror)
-  
-  call mpi_barrier(mpi_comm_world,ierror)
 
+  !Changed the displacements vector from N*(start_vec-1)+1 to N*(start_vec-1). I think it's working, as afterward sum(K) is equal to sum( sum(K_core), all cores)
+  
+  call mpi_gatherv(K_core_vec,num_rows(my_rank+1)*N,mpi_double,K_vec,N*num_rows,N*(start_vec-1),&
+                   mpi_double,master,mpi_comm_world,ierror)
+  
   !Testing if the full K is correct (it is not as of now)
   if (my_rank == master) then
+     
      do i = 1,N
         do j = 1,N
            K(i,j) = K_vec((i-1)*N+j)
         end do
      end do
-     print *, K(1,1:5),K(101,1:5),K(201,1:5),K(301,1:5)
-  end if
-
-  if (my_rank == master) then
-     print *,'sum of all K ',sum(K),'vector: ',sum(K_vec)
+     
   end if
 
   !call mpi_barrier(mpi_comm_world,ierror)
-
-
-
-
-
-  
   
   allocate(K_core_inv(num_rows(my_rank+1),N))
+  allocate(K_core_inv_vec(num_rows(my_rank+1)*N))
+
+  if (my_rank == master) then
+
+     !allocate(K_inv(N,N))
+     allocate(K_inv_vec(N*N))
+     
+     call row_red_omp(K,K_inv,N)
+
+     do i = 1,N
+        do j = 1,N
+           K_inv_vec((i-1)*N+j) = K_inv(i,j)
+        end do
+     end do
+
+     
+     !these sums aren't the same. Can't figure out why by printing individual rows. Maybe some roundoff error? Doesn't seem to affect answer
+     !print *,sum(K_inv)
+     !print *,sum(K_inv_vec)
+
+  end if
+  
   
   call mpi_barrier(mpi_comm_world,ierror)
-  
-  call mpi_scatterv(K_inv,num_rows*N,(start_vec-1)*N+1,mpi_double, &
-       K_core_inv,(N/num_cores)*N,mpi_double,master,mpi_comm_world,ierror)
+
+  !this one seems to be working without (start_vec-1)*N+1 as well.
+  call mpi_scatterv(K_inv_vec,num_rows*N,(start_vec-1)*N,mpi_double,&
+       K_core_inv_vec,num_rows(my_rank+1)*N,mpi_double,master,mpi_comm_world,ierror)
   
   allocate(E_whole(msg_rows,msg_cols))
+  allocate(E_whole_vec(msg_rows*msg_cols))
+
+  allocate(E_vec(num_rows(my_rank+1)*msg_cols))
+
+  do i = 1,num_rows(my_rank+1)
+     do j = 1,N
+        K_core_inv(i,j) = K_core_inv_vec((i-1)*N+j)
+     end do
+  end do
+
+  do i = 1,num_rows(my_rank+1)
+     do j = 1,msg_cols
+        E_vec((i-1)*msg_cols+j) = E(i,j)
+     end do
+  end do  
   
+  !Trying to get all of E to all of the cores
+  call mpi_allgatherv(E_vec,num_rows(my_rank+1)*msg_cols,mpi_double,E_whole_vec,num_rows*msg_cols,&
+       (start_vec-1)*msg_cols,mpi_double,mpi_comm_world,ierror)
+
+
+  do i = 1,msg_rows
+     do j = 1,msg_cols
+        E_whole(i,j) = E_whole_vec((i-1)*msg_cols+j)
+     end do
+  end do
+
   call mpi_barrier(mpi_comm_world,ierror)
-  
-  !Trying to get all of E to all of the cores (CHANGE THIS TO ALLGATHERV WHEN WE FIGURE OUT HOW TO HAVE VARYING NUM_ROWS)
-  call mpi_allgather(E,msg_rows*msg_cols,mpi_double,E_whole,msg_rows*msg_cols, &
-       mpi_double,mpi_comm_world,ierror)
   
   M = real(M,my_kind)
 
-  print *, E_whole(1,:)
+
+
   
   call par_mat_mul(K_core_inv,E_whole,M)
 
-  !Compute the original message message again by multiplying the inverse key and the encoded message, E
-  !E1 = matmul(K_inv,E)
+  allocate(M_vec(num_rows(my_rank+1)*msg_cols))
 
-  !Convert the decoded matrix of reals into the nearest whole numbers
+  do i = 1,num_rows(my_rank+1)
+     do j = 1,msg_cols
+        M_vec((i-1)*msg_cols+j) = M(i,j)
+     end do
+  end do
 
+  deallocate(E)
+  deallocate(E_vec)
+  deallocate(E_whole)
+  deallocate(E_whole_vec)
+  deallocate(K_core)
+  deallocate(K_core_inv)
+  
   if (my_rank == master) then
      allocate(M_whole(msg_rows,msg_cols))
-  end if
-
-  print *, size(M)
-
-  if (my_rank == master) then
-     print *, size(M_whole)
+     allocate(M_whole_vec(msg_rows*msg_cols))
+     allocate(C(msg_rows,msg_cols))
   end if
   
-  !gathering the decoded messaage in master
-  call mpi_gather(M,size(M),mpi_double,M_whole, &
-       size(M_whole),mpi_double,master,mpi_comm_world,ierror)
-
-  !print *, ierror, my_rank
-  
-  print *, my_rank, "made it past last gather call"
+  !gathering the decoded message in master
+  call mpi_gatherv(M_vec,num_rows(my_rank+1)*msg_cols,mpi_double,M_whole_vec,&
+       num_rows*msg_cols,(start_vec-1)*msg_cols,mpi_double,master,mpi_comm_world,ierror)
   
   !Convert the integer decoded matrix of integers into their ASCII equivalent characters
   if (my_rank == master) then
+
+     do i = 1,msg_rows
+        do j = 1,msg_cols
+           M_whole(i,j) = M_whole_vec((i-1)*msg_cols + j)
+        end do
+     end do
+
+     print *,M_whole
+     
      C = char(nint(M_whole))
-     open(unit=3,file='output.txt')
-     write(3,*) C
-     close(3)
+     !open(unit=3,file='output.txt')
+     !write(3,*) C
+     !close(3)
+     print *,C
   end if
    
   !Deallocate all arrays used in master core
@@ -201,18 +248,14 @@ program main
      deallocate(K)
      deallocate(C)
      deallocate(M_whole)
-
   end if
      
 
-     !Deallocate the arrays that all cores use
-     deallocate(start_vec)
-     deallocate(num_rows)
-     deallocate(E)
-     deallocate(M)
-     deallocate(K_core)
-     deallocate(K_core_inv)
-     deallocate(E_whole)
+  !Deallocate the arrays that all cores use
+  deallocate(start_vec)
+  deallocate(num_rows)
+  deallocate(M)
+  deallocate(M_vec)
   
   call mpi_finalize(ierror)
   
