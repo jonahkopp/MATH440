@@ -27,20 +27,23 @@ program main
   !Set N to be the number of rows/cols of the key matrix, the number of rows of rows of the message matrix/encoded matrix
   N = 100
 
+  !Not sure we need this line anymore
   call cpu_time(timeseed)
 
-  call srand(int(exp(real(my_rank))))
-  
+  !Seed rng with exp(my_rank+1) so each core has different seed
+  call srand(int(exp(real(my_rank+1))))
+
+  !Master core does the following:
   if (my_rank == master) then
   
      !Prompt user for the file name containing the message to be encoded
      print *, "Enter the file name:"
-  
      read(*,*) file_name
 
      !Generate the original message matrix using the following subroutine
      call gen_msg_mat(N,file_name,M)
 
+     !Save the size of the message matrix so it can be known to all other cores later
      msg_rows = size(M(:,1))
      msg_cols = size(M(1,:))
 
@@ -49,16 +52,13 @@ program main
   !Broadcast the size of the message to each core
   call mpi_bcast(msg_rows,1,mpi_integer,master,mpi_comm_world,ierror)
   call mpi_bcast(msg_cols,1,mpi_integer,master,mpi_comm_world,ierror)
-  
-  call mpi_barrier(mpi_comm_world,ierror)
 
   !All other cores beside master allocate their own message matrix
   if (my_rank .ne. master) then
      allocate(M(msg_rows,msg_cols))
   end if
-  
-  !call mpi_barrier(mpi_comm_world,ierror)
 
+  !Make sure all cores are caught up before broadcast call below
   call mpi_barrier(mpi_comm_world,ierror)
   
   !Broadcast the message matrix to all cores
@@ -88,7 +88,7 @@ program main
      start_vec(i) = num_rows(i-1)+start_vec(i-1)
   end do
   
-  !Allocate matrices
+  !Allocate each core's portion of the key matrix, K, in 1-d and 2-d form
   allocate(K_core(num_rows(my_rank+1),N))
   allocate(K_core_vec(num_rows(my_rank+1)*N))
 
@@ -99,147 +99,150 @@ program main
      end do
   end do
 
-  !Allocate the full key matrix
+  !Allocate the full key matrix in 2-d and 1-d form
   if (my_rank == master) then
      allocate(K(N,N))
      allocate(K_vec(N*N))
   end if
 
+  !Get each core's portion of the encoded message, E, by calling the parallel matrix mult. subroutine
   call par_mat_mul(K_core,M,E)
 
+  !Put each portion of K into 1-d vector form so they can be properly gathered by master
   do i = 1,num_rows(my_rank+1)
      do j = 1,N
         K_core_vec((i-1)*N+j) = K_core(i,j)
      end do
   end do
 
-
-  !Changed the displacements vector from N*(start_vec-1)+1 to N*(start_vec-1). I think it's working, as afterward sum(K) is equal to sum( sum(K_core), all cores)
-  
+  !Master gathers all of the core's portions of K and puts them into a 1-d form of the full K vector
   call mpi_gatherv(K_core_vec,num_rows(my_rank+1)*N,mpi_double,K_vec,N*num_rows,N*(start_vec-1),&
                    mpi_double,master,mpi_comm_world,ierror)
   
-  !Testing if the full K is correct (it is not as of now)
+  !Master resizes K_vec in 1-d form to K, which is 2-d form
   if (my_rank == master) then
-     
      do i = 1,N
         do j = 1,N
            K(i,j) = K_vec((i-1)*N+j)
         end do
-     end do
-     
+     end do     
   end if
 
-  !call mpi_barrier(mpi_comm_world,ierror)
-  
+  !All cores should allocate their portion of K inverse in 2-d and 1-d form
   allocate(K_core_inv(num_rows(my_rank+1),N))
   allocate(K_core_inv_vec(num_rows(my_rank+1)*N))
 
+  !Master core should do the following:
   if (my_rank == master) then
 
-     !allocate(K_inv(N,N))
+     !Allocate the master's K inverse as a 1-d vector so it can be sent and recieved properly
      allocate(K_inv_vec(N*N))
-     
+
+     !Use the OpenMP row reduction subroutine to find K inverse
      call row_red_omp(K,K_inv,N)
 
+     !ADD CALL TO SUBROUTINE FOR MPI IN ADDITION TO OPENMP VERSION!
+
+     !Populate the K inverse 1-d vector
      do i = 1,N
         do j = 1,N
            K_inv_vec((i-1)*N+j) = K_inv(i,j)
         end do
      end do
-
      
-     !these sums aren't the same. Can't figure out why by printing individual rows. Maybe some roundoff error? Doesn't seem to affect answer
-     !print *,sum(K_inv)
-     !print *,sum(K_inv_vec)
-
   end if
   
-  
+  !Must make sure all cores are caught up before making the scatterv call
   call mpi_barrier(mpi_comm_world,ierror)
 
-  !this one seems to be working without (start_vec-1)*N+1 as well.
+  !Scatter the full K inv vector from master to all cores and call each core's portion K_core_inv_vec
   call mpi_scatterv(K_inv_vec,num_rows*N,(start_vec-1)*N,mpi_double,&
        K_core_inv_vec,num_rows(my_rank+1)*N,mpi_double,master,mpi_comm_world,ierror)
-  
+
+  !Allocate the full encoded message matrix, that in 1-d vector form, as well as the portions
+  !of the encoded message matrix E
   allocate(E_whole(msg_rows,msg_cols))
   allocate(E_whole_vec(msg_rows*msg_cols))
-
   allocate(E_vec(num_rows(my_rank+1)*msg_cols))
 
+  !Now that the scatter call has been made, each core's portion of E can be put back into 2-d form
   do i = 1,num_rows(my_rank+1)
      do j = 1,N
         K_core_inv(i,j) = K_core_inv_vec((i-1)*N+j)
      end do
   end do
 
+  !Put the encoded message portion (for each core) into 1-d vector form so they can be gathered
   do i = 1,num_rows(my_rank+1)
      do j = 1,msg_cols
         E_vec((i-1)*msg_cols+j) = E(i,j)
      end do
   end do  
   
-  !Trying to get all of E to all of the cores
+  !Gather all portions of E in vector form and put them in E_whole_vec (1-d), which each core will have
   call mpi_allgatherv(E_vec,num_rows(my_rank+1)*msg_cols,mpi_double,E_whole_vec,num_rows*msg_cols,&
        (start_vec-1)*msg_cols,mpi_double,mpi_comm_world,ierror)
 
-
+  !Now we put the full encoded message matrix into 2-d matrix form
   do i = 1,msg_rows
      do j = 1,msg_cols
         E_whole(i,j) = E_whole_vec((i-1)*msg_cols+j)
      end do
   end do
 
+  !Not sure we need the following barrier anymore:
   call mpi_barrier(mpi_comm_world,ierror)
-  
-  M = real(M,my_kind)
 
-
-
-  
+  !Call the MPI parallel matrix mult. subroutine to get each core's portion of message matrix M
   call par_mat_mul(K_core_inv,E_whole,M)
 
   allocate(M_vec(num_rows(my_rank+1)*msg_cols))
 
+  !Put each core's portion of M into vector, 1-d, form so they can be gathered by master
   do i = 1,num_rows(my_rank+1)
      do j = 1,msg_cols
         M_vec((i-1)*msg_cols+j) = M(i,j)
      end do
   end do
 
+  !Deallocating all arrays that are no longer necessary to finish the program
+  !This will free up space for the allocations coming up
   deallocate(E)
   deallocate(E_vec)
   deallocate(E_whole)
   deallocate(E_whole_vec)
   deallocate(K_core)
   deallocate(K_core_inv)
-  
+
+  !Master core now allocates the full message matrix, that in 1-d vector form, as well as C
+  !where C is the message matrix converted to ASCII code equivalents (readable letters)
   if (my_rank == master) then
      allocate(M_whole(msg_rows,msg_cols))
      allocate(M_whole_vec(msg_rows*msg_cols))
-     allocate(C(msg_rows,msg_cols))
+     allocate(C(msg_rows,msg_cols))    
   end if
   
-  !gathering the decoded message in master
+  !Gather all cores' portions of M and assemble into M_whole_vec
   call mpi_gatherv(M_vec,num_rows(my_rank+1)*msg_cols,mpi_double,M_whole_vec,&
        num_rows*msg_cols,(start_vec-1)*msg_cols,mpi_double,master,mpi_comm_world,ierror)
   
   !Convert the integer decoded matrix of integers into their ASCII equivalent characters
   if (my_rank == master) then
-
      do i = 1,msg_rows
         do j = 1,msg_cols
            M_whole(i,j) = M_whole_vec((i-1)*msg_cols + j)
         end do
      end do
 
-     print *,M_whole
-     
+     !Put message matrix, M, into readable character form, C
      C = char(nint(M_whole))
-     !open(unit=3,file='output.txt')
-     !write(3,*) C
-     !close(3)
-     print *,C
+
+     !Write the decoded message to the output text file
+     open(unit=3,file='output.txt')
+     do i=1,msg_rows    
+        write(3,*) C(i,:)
+     end do
+     close(3)
   end if
    
   !Deallocate all arrays used in master core
@@ -249,14 +252,14 @@ program main
      deallocate(C)
      deallocate(M_whole)
   end if
-     
 
-  !Deallocate the arrays that all cores use
+  !Deallocate the rest of the arrays that all cores used
   deallocate(start_vec)
   deallocate(num_rows)
   deallocate(M)
   deallocate(M_vec)
-  
+
+  !Finalize MPI
   call mpi_finalize(ierror)
   
 end program main
