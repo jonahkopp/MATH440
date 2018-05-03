@@ -7,7 +7,7 @@ contains
     implicit none
     
     !Declare variables and parameters
-    integer, parameter :: my_kind = selected_real_kind(16,300)
+    integer, parameter :: my_kind = kind(0.0d0)
     real(kind=my_kind), allocatable, dimension(:,:), intent(inout) :: K
     real(kind=my_kind), allocatable, dimension(:,:), intent(out) :: K_inv
     integer :: i,j,N
@@ -47,7 +47,7 @@ contains
     implicit none
     
     !Declare variables and parameters
-    integer, parameter :: my_kind = selected_real_kind(16,300)
+    integer, parameter :: my_kind = kind(0.0d0)
     integer, intent(in) :: N
     real(kind=my_kind), allocatable, dimension(:,:), intent(inout) :: K
     real(kind=my_kind), allocatable, dimension(:,:), intent(out) :: K_inv
@@ -151,7 +151,7 @@ contains
     implicit none
 
     !Declare variables
-    integer, parameter :: my_kind = selected_real_kind(16,300)
+    integer, parameter :: my_kind = kind(0.0d0)
     integer, intent(in) :: N
     real(kind=my_kind), allocatable, dimension(:,:), intent(out) :: M
     character(len=20), intent(in) :: file_name
@@ -212,7 +212,7 @@ contains
     implicit none
 
     !Declare variables
-    integer, parameter :: my_kind = selected_real_kind(16,300)
+    integer, parameter :: my_kind = kind(0.0d0)
     real(kind=my_kind), allocatable, dimension(:,:), intent(in) :: K,M
     real(kind=my_kind), allocatable, dimension(:,:), intent(out) :: A
     integer :: i,j,p
@@ -246,7 +246,7 @@ contains
     implicit none
 
     !Declare variables
-    integer, parameter :: my_kind = selected_real_kind(16,300)
+    integer, parameter :: my_kind = kind(0.0d0)
     real(kind=my_kind), allocatable, dimension(:,:), intent(in) :: K
     integer,allocatable,dimension(:,:),intent(in) :: M
     real(kind=my_kind), allocatable, dimension(:,:), intent(out) :: A
