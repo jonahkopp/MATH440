@@ -1,1 +1,1 @@
-this is a test message. let's see if it works.
+Since we can use any string as a label, it's a common practice to add a few letters to the label (as prefix) to indicate what is being labeled. This becomes important when a lot of different types of objects are referenced in a document, as it might be useful to remember the kind of object a label refers to it. Besides, it also makes it possible to reference different kind of objects using a common string.

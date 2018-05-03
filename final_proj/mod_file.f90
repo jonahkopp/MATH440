@@ -53,8 +53,6 @@ contains
     real(kind=my_kind), allocatable, dimension(:,:), intent(out) :: K_inv
     integer :: i,j,iam,tot,numthreads
     integer,external :: omp_get_thread_num, omp_get_num_threads
-
-    !N = size(K(1,:))
     
     allocate(K_inv(N,N))
 
@@ -146,6 +144,35 @@ contains
     
   end subroutine row_red_omp
 
+  subroutine row_red_mpi(K,K_inv,N,num_rows)
+
+    implicit none
+
+    !Declare variables
+    integer, parameter :: my_kind(0.0d0)
+    integer, intent(in) :: N
+    real(kind=my_kind), allocatable, dimension(:,:), intent(inout) :: K
+    real(kind=my_kind), allocatable, dimension(:,:), intent(out) :: K_inv
+    integer, allocatable, dimension(:), intent(in) :: num_rows
+    
+    allocate(K_inv(N,N))
+
+    K_inv(:,:) = real(0,my_kind)
+
+    do i=1,N
+       K_inv(i,i) = real(1,my_kind)
+    end do
+
+    do while (i <= N)
+
+       if (my_rank == master) then
+
+          
+       
+    end do
+
+  end subroutine row_red_mpi
+  
   subroutine gen_msg_mat(N,file_name,M)
 
     implicit none
