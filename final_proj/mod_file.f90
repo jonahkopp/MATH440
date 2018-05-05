@@ -144,34 +144,38 @@ contains
     
   end subroutine row_red_omp
 
-  subroutine row_red_mpi(K,K_inv,N,num_rows)
+  !subroutine row_red_mpi(K,K_inv,N,num_rows)
 
-    implicit none
+    !implicit none
 
     !Declare variables
-    integer, parameter :: my_kind(0.0d0)
-    integer, intent(in) :: N
-    real(kind=my_kind), allocatable, dimension(:,:), intent(inout) :: K
-    real(kind=my_kind), allocatable, dimension(:,:), intent(out) :: K_inv
-    integer, allocatable, dimension(:), intent(in) :: num_rows
+    !integer, parameter :: my_kind = kind(0.0d0)
+    !integer, intent(in) :: N
+    !real(kind=my_kind), allocatable, dimension(:,:), intent(inout) :: K
+    !real(kind=my_kind), allocatable, dimension(:,:), intent(out) :: K_inv
+    !integer, allocatable, dimension(:), intent(in) :: num_rows
+    !integer :: i
     
-    allocate(K_inv(N,N))
+    !allocate(K_inv(N,N))
 
-    K_inv(:,:) = real(0,my_kind)
+    !K_inv(:,:) = real(0,my_kind)
 
-    do i=1,N
-       K_inv(i,i) = real(1,my_kind)
-    end do
+    !do i=1,N
+     !  K_inv(i,i) = real(1,my_kind)
+    !end do
 
-    do while (i <= N)
+    !i = 1
+    
+    !do while (i <= N)
 
-       if (my_rank == master) then
-
-          
+      ! if (my_rank == master) then
+       !   K_inv(i,:) = (1/K(i,i))*K_inv(i,:)
+        !  K(i,:) = (1/K(i,i))*K(i,:)
+      ! end if          
        
-    end do
+   ! end do
 
-  end subroutine row_red_mpi
+ ! end subroutine row_red_mpi
   
   subroutine gen_msg_mat(N,file_name,M)
 
@@ -234,6 +238,22 @@ contains
     
   end subroutine gen_msg_mat
 
+  !subroutine seq_mat_mul(K,M,A)
+
+    !implicit none
+
+    !Declare variables
+    !integer, parameter :: my_kind = kind(0.0d0)
+    !real(kind=my_kind), allocatable, dimension(:,:), intent(in) :: K,M
+    !real(kind=my_kind), allocatable, dimension(:,:), intent(out) :: A
+
+    !Allocate the output matrix using the number of rows of K and number of cols of M
+    !allocate(A(size(K(:,1)),size(M(1,:))))
+
+    !A = matmul(K,M)
+    
+  !end subroutine seq_mat_mul
+  
   subroutine par_mat_mul(K,M,A)
 
     implicit none
@@ -268,39 +288,39 @@ contains
     
   end subroutine par_mat_mul
 
-  subroutine par_mat_mul_int(K,M,A)
+  !subroutine par_mat_mul_int(K,M,A)
 
-    implicit none
+   ! implicit none
 
     !Declare variables
-    integer, parameter :: my_kind = kind(0.0d0)
-    real(kind=my_kind), allocatable, dimension(:,:), intent(in) :: K
-    integer,allocatable,dimension(:,:),intent(in) :: M
-    real(kind=my_kind), allocatable, dimension(:,:), intent(out) :: A
-    integer :: i,j,p
+   ! integer, parameter :: my_kind = kind(0.0d0)
+   ! real(kind=my_kind), allocatable, dimension(:,:), intent(in) :: K
+   ! integer,allocatable,dimension(:,:),intent(in) :: M
+   ! real(kind=my_kind), allocatable, dimension(:,:), intent(out) :: A
+   ! integer :: i,j,p
 
-    allocate(A(size(K(:,1)),size(M(1,:))))
+   ! allocate(A(size(K(:,1)),size(M(1,:))))
 
-    A = 0
+   ! A = 0
 
-    !$omp parallel &
-    !$omp shared(K,M,A) &
-    !$omp private(i,j,p)
+   ! !$omp parallel &
+  !  !$omp shared(K,M,A) &
+  !  !$omp private(i,j,p)
 
-    !$omp do
+  !  !$omp do
 
-    do i=1,size(K(:,1))
-       do j=1,size(M(1,:))
-          do p=1,size(K(1,:))
-             A(i,j) = A(i,j) + K(i,p)*M(p,j)
-          end do
-       end do
-    end do
+    !do i=1,size(K(:,1))
+     !  do j=1,size(M(1,:))
+      !    do p=1,size(K(1,:))
+       !      A(i,j) = A(i,j) + K(i,p)*M(p,j)
+        !  end do
+      ! end do
+    !end do
 
-    !$omp end do
+  !  !$omp end do
 
-    !$omp end parallel
+  !  !$omp end parallel
 
-  end subroutine par_mat_mul_int
+  !end subroutine par_mat_mul_int
     
 end module mod_file
