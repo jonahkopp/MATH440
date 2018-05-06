@@ -24,12 +24,11 @@ program main
   call mpi_comm_rank(mpi_comm_world,my_rank,ierror)
   call mpi_comm_size(mpi_comm_world,num_cores,ierror)
 
-
   master = 0
   tag = 0
 
   !Set N to be the number of rows/cols of the key matrix, the number of rows of rows of the message matrix/encoded matrix
-  N = 100
+  N = 3000
 
   if (my_rank == master) then
   
@@ -42,7 +41,7 @@ program main
      end do
 
   end if
-
+  
   call mpi_bcast(omp_or_mpi,1,mpi_character,master,mpi_comm_world,ierror)
  
   !Used to seed the RNG
@@ -58,6 +57,10 @@ program main
      print *, "Enter the message file name:"
      read(*,*) file_name
 
+
+
+     time_start = omp_get_wtime()
+     
      !Generate the original message matrix using the following subroutine
      call gen_msg_mat(N,file_name,M)
 
@@ -188,66 +191,8 @@ program main
     
     do while (i <= N)
 
-       if (my_rank .ne. num_cores-1) then
        
-          if (i >= start_vec(my_rank+1) .and. i < start_vec(my_rank+2)) then
-
-             K_core_inv(i-start_vec(my_rank+1)+1,:) = 1/K_core(i-start_vec(my_rank+1)+1,i-start_vec(my_rank+1)+1)*&
-                  K_core_inv(i-start_vec(my_rank+1)+1,:)
-             K_core(i-start_vec(my_rank+1)+1,:) = 1/K_core(i-start_vec(my_rank+1)+1,i-start_vec(my_rank+1)+1)*&
-                  K_core(i-start_vec(my_rank+1)+1,:)
-          
-             K_row_vec = K_core(i-start_vec(my_rank+1)+1,:)
-
-          end if
-
-          do j = 0,num_cores-2
-
-             if (i >= start_vec(j+1) .and. i < start_vec(j+2)) then
-                the_core = j
-             end if
-             
-          end do
-
-          if (my_rank == master) then
-
-             call mpi_send(the_core,1,mpi_integer,num_cores-1,tag,mpi_comm_world,ierror)
-             
-          end if
-          
-       else
-
-          call mpi_recv(the_core,1,mpi_integer,master,tag,mpi_comm_world,mpi_status,ierror)
-          
-       end if
-       
-       call mpi_bcast(K_row_vec,N,mpi_double,the_core,mpi_comm_world,ierror)
-
-       if (my_rank .ne. num_cores-1) then
-
-          if (i >= start_vec(my_rank+1) .and. i < start_vec(my_rank+2)) then
-
-             do j = i+1,num_rows(my_rank+1)
-
-                K_core_inv(j,:) = K_core_inv(j,:) - K_row_vec*K_core(j,i)
-                K_core(j,:) = K_core(j,:) - K_row_vec*K_core(j,i)
-
-             end do
-
-          else
-          
-             do j = 1,num_rows(my_rank+1)
-
-                K_core_inv(j,:) = K_core_inv(j,:) - K_row_vec*K_core(j,i)
-                K_core(j,:) = K_core(j,:) - K_row_vec*K_core(j,i)
-
-             end do
-
-          end if
-
-          i = i + 1
-
-       else if (i >= start_vec(my_rank+1) .and. i < N) then
+       if (i >= start_vec(my_rank+1) .and. i < start_vec(my_rank+1)+num_rows(my_rank+1)) then
 
           K_core_inv(i-start_vec(my_rank+1)+1,:) = 1/K_core(i-start_vec(my_rank+1)+1,i-start_vec(my_rank+1)+1)*&
                K_core_inv(i-start_vec(my_rank+1)+1,:)
@@ -255,113 +200,93 @@ program main
                K_core(i-start_vec(my_rank+1)+1,:)
           
           K_row_vec = K_core(i-start_vec(my_rank+1)+1,:)
+
+       end if
+
+       do j = 0,num_cores-1
+
+          if (i >= start_vec(j+1) .and. i < start_vec(j+1)+num_rows(my_rank+1)) then
+             the_core = j
+          end if
              
-          do j = i+1,num_rows(my_rank+1)
+       end do
+       
+       call mpi_bcast(K_row_vec,N,mpi_double,the_core,mpi_comm_world,ierror)
+
+       if (i >= start_vec(my_rank+1) .and. i < start_vec(my_rank+1)+num_rows(my_rank+1)) then
+
+          do j = i-start_vec(my_rank+1)+1,num_rows(my_rank+1)
 
              K_core_inv(j,:) = K_core_inv(j,:) - K_row_vec*K_core(j,i)
              K_core(j,:) = K_core(j,:) - K_row_vec*K_core(j,i)
 
           end do
 
-          i = i + 1
+       else
+          
+          do j = 1,num_rows(my_rank+1)
+
+             K_core_inv(j,:) = K_core_inv(j,:) - K_row_vec*K_core(j,i)
+             K_core(j,:) = K_core(j,:) - K_row_vec*K_core(j,i)
+
+          end do
 
        end if
+
+          i = i + 1
        
     end do
 
-
-
     
     !clearing the upper triangle
-    i = N
-
-
+    i = 1
     
-    do while (i > 1)
+    do while (i <= N)
 
-       if (my_rank .ne. 0) then 
        
-          if (i >= start_vec(my_rank)+num_rows(my_rank) .and. i < start_vec(my_rank+1)+num_rows(my_rank+1)) then
+       
+       if (i >= start_vec(my_rank+1) .and. i < start_vec(my_rank+1)+num_rows(my_rank+1)) then
 
-             K_core_inv(i-start_vec(my_rank+1)+1,:) = 1/K_core(i-start_vec(my_rank+1)+1,i-start_vec(my_rank+1)+1)*&
-                  K_core_inv(i-start_vec(my_rank+1)+1,:)
-             K_core(i-start_vec(my_rank+1)+1,:) = 1/K_core(i-start_vec(my_rank+1)+1,i-start_vec(my_rank+1)+1)*&
-                  K_core(i-start_vec(my_rank+1)+1,:)
+          K_core_inv(i-start_vec(my_rank+1)+1,:) = 1/K_core(i-start_vec(my_rank+1)+1,i-start_vec(my_rank+1)+1)*&
+               K_core_inv(i-start_vec(my_rank+1)+1,:)
+          K_core(i-start_vec(my_rank+1)+1,:) = 1/K_core(i-start_vec(my_rank+1)+1,i-start_vec(my_rank+1)+1)*&
+               K_core(i-start_vec(my_rank+1)+1,:)
           
-             K_row_vec = K_core(i-start_vec(my_rank+1)+1,:)
-
-          end if
-
-          do j = 0,num_cores-2
-
-             if (i >= start_vec(j+1) .and. i < start_vec(j+2)) then
-                the_core = j
-             end if
-             
-          end do
-
-          if (my_rank == num_cores-1) then
-             
-             call mpi_send(the_core,1,mpi_integer,master,tag,mpi_comm_world,ierror)
-             
-          end if
-
-       else
-
-          call mpi_recv(the_core,1,mpi_integer,num_cores-1,tag,mpi_comm_world,mpi_status,ierror)
+          K_row_vec = K_core(i-start_vec(my_rank+1)+1,:)
 
        end if
-       
+
+       do j = 0,num_cores-2
+
+          if (i >= start_vec(j+1) .and. i < start_vec(j+1)+num_rows(my_rank+1)) then
+             the_core = j
+          end if
+             
+       end do
+    
        call mpi_bcast(K_row_vec,N,mpi_double,the_core,mpi_comm_world,ierror)
        
-       if (my_rank .ne. 0) then
+       if (i >= start_vec(my_rank+1) .and. i < start_vec(my_rank+1)+num_rows(my_rank+1)) then
+
+          do j = 1,start_vec(my_rank+1)+num_rows(my_rank+1)-(N+i)
+
+             K_core_inv(j,:) = K_core_inv(j,:) - K_row_vec*K_core(j,i)
+             K_core(j,:) = K_core(j,:) - K_row_vec*K_core(j,i)
+
+          end do
+
+       else
           
-          if (i >= start_vec(my_rank)+num_rows(my_rank) .and. i < start_vec(my_rank+1)+num_rows(my_rank+1)) then
+          do j = 1,num_rows(my_rank+1)
 
-             do j = start_vec(my_rank),start_vec(my_rank)+num_rows(my_rank)-1
+             K_core_inv(j,:) = K_core_inv(j,:) - K_row_vec*K_core(j,i)
+             K_core(j,:) = K_core(j,:) - K_row_vec*K_core(j,i)
 
-                K_core_inv(j,:) = K_core_inv(j,:) - K_row_vec*K_core(j,i)
-                K_core(j,:) = K_core(j,:) - K_row_vec*K_core(j,i)
-
-             end do
-
-          else
-          
-             do j = 1,num_rows(my_rank+1)
-
-                K_core_inv(j,:) = K_core_inv(j,:) - K_row_vec*K_core(j,i)
-                K_core(j,:) = K_core(j,:) - K_row_vec*K_core(j,i)
-
-             end do
-
-          end if
-
-          i = i - 1
-
-       else if (my_rank == 0) then
-
-          if (i >= 1 .and. i < start_vec(my_rank+1)+num_rows(my_rank+1)) then
-          
-             K_core_inv(i-start_vec(my_rank+1)+1,:) = 1/K_core(i-start_vec(my_rank+1)+1,i-start_vec(my_rank+1)+1)*&
-                  K_core_inv(i-start_vec(my_rank+1)+1,:)
-             K_core(i-start_vec(my_rank+1)+1,:) = 1/K_core(i-start_vec(my_rank+1)+1,i-start_vec(my_rank+1)+1)*&
-                  K_core(i-start_vec(my_rank+1)+1,:)
-          
-             K_row_vec = K_core(i-start_vec(my_rank+1)+1,:)
-             
-             do j = start_vec(my_rank+1),i-1
-
-                K_core_inv(j,:) = K_core_inv(j,:) - K_row_vec*K_core(j,i)
-                K_core(j,:) = K_core(j,:) - K_row_vec*K_core(j,i)
-
-             end do
-             
-          end if
-       
-
-          i = i - 1
+          end do
 
        end if
+
+       i = i + 1
        
     end do
 
@@ -417,9 +342,7 @@ program main
      end do
   end do  
   
-
-  print *,'core ',my_rank,' here'
-  
+ 
   !Call the MPI parallel matrix mult. subroutine to get each core's portion of message matrix M
   call par_mat_mul(K_core_inv,E_whole,M_function)
 
@@ -471,6 +394,10 @@ program main
      !Put message matrix, M, into readable character form, C
      C = char(nint(M_whole))
 
+     time_end = omp_get_wtime()
+
+     print *,'time = ',time_end-time_start
+     
      !Write the decoded message to the output text file
      open(unit=3,file='output.txt')
      do i=1,msg_rows    
