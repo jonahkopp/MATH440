@@ -13,9 +13,8 @@ program main
   real(kind=my_kind),allocatable,dimension(:) :: K_core_vec,K_vec,K_inv_vec,K_core_inv_vec,E_vec
   real(kind=my_kind),allocatable,dimension(:) :: E_whole_vec,M_vec,M_whole_vec,K_row_vec
   character,allocatable,dimension(:,:) :: C
-  integer,dimension(mpi_status_size) :: mpi_status
   integer :: i,j,N,ierror,my_rank,num_cores,master,div,rem,tag,msg_rows,msg_cols,the_core
-  real(kind=my_kind) :: timeseed,time_start,time_end
+  real(kind=my_kind) :: timeseed,time_start,time_end,rand_num
   character(len=20) :: file_name
   integer,allocatable,dimension(:) :: num_rows,start_vec
   character :: omp_or_mpi = 'a'
@@ -28,17 +27,19 @@ program main
   tag = 0
 
   !Set N to be the number of rows/cols of the key matrix, the number of rows of rows of the message matrix/encoded matrix
-  N = 3000
+  N = 5000
 
   if (my_rank == master) then
   
+     omp_or_mpi = 'm'
+
      !Prompt user for sequential or parallel version
-     print *, "Would you like to run OpenMP inversion or MPI inversion? 'o' for OpenMP or 'm' for MPI:"
+     !print *, "Would you like to run OpenMP inversion or MPI inversion? 'o' for OpenMP or 'm' for MPI:"
 
      !Keep repeating user input if they didn't enter 'o' or 'm'
-     do while (omp_or_mpi .ne. 'o' .and. omp_or_mpi .ne. 'm')
-        read(*,*) omp_or_mpi
-     end do
+     !do while (omp_or_mpi .ne. 'o' .and. omp_or_mpi .ne. 'm')
+        !read(*,*) omp_or_mpi
+     !end do
 
   end if
   
@@ -48,16 +49,16 @@ program main
   call cpu_time(timeseed)
 
   !Seed rng with exp(my_rank+1) so each core has different seed
-  call srand(int(exp(real(my_rank+1)))*nint(timeseed))
+  !call init_random_seed(int(exp(real(my_rank+1)))*nint(timeseed))
 
   !Master core does the following:
   if (my_rank == master) then
   
      !Prompt user for the file name containing the message to be encoded
-     print *, "Enter the message file name:"
-     read(*,*) file_name
+     !print *, "Enter the message file name:"
+     !read(*,*) file_name
 
-
+     file_name = "message.txt"
 
      time_start = omp_get_wtime()
      
@@ -116,7 +117,8 @@ program main
   !Generate the key matrix using random numbers reals between 1 and 2
   do i=1,num_rows(my_rank+1)
      do j=1,N
-        K_core(i,j) = rand()+1
+        call random_number(rand_num)
+        K_core(i,j) = rand_num+1
      end do
   end do
 

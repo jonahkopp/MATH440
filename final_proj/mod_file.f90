@@ -189,7 +189,8 @@ contains
     character(len=2000) :: test_str
     integer :: i, j, num_cols
     integer, allocatable, dimension(:) :: int_vec
-    
+    real(kind=my_kind) :: rand_num
+
     open(unit=1,file=file_name,action='read')
 
     read(1,'(A)') test_str
@@ -227,7 +228,9 @@ contains
 
           else
 
-             M(i,j) = real(rand()*(47-34)+34,my_kind)
+             call random_number(rand_num)
+
+             M(i,j) = real(rand_num*(47-34)+34,my_kind)
 
           end if
                     
