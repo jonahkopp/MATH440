@@ -27,29 +27,20 @@ program main
   tag = 0
 
   !Set N to be the number of rows/cols of the key matrix, the number of rows of rows of the message matrix/encoded matrix
-  N = 5000
+  N = 3000
 
   if (my_rank == master) then
-  
+
+     !Change this to 'o' to run row reduction with OMP version rather than MPI version
      omp_or_mpi = 'm'
-
-     !Prompt user for sequential or parallel version
-     !print *, "Would you like to run OpenMP inversion or MPI inversion? 'o' for OpenMP or 'm' for MPI:"
-
-     !Keep repeating user input if they didn't enter 'o' or 'm'
-     !do while (omp_or_mpi .ne. 'o' .and. omp_or_mpi .ne. 'm')
-        !read(*,*) omp_or_mpi
-     !end do
 
   end if
   
+  !Broadcast the chosen character above to all cores
   call mpi_bcast(omp_or_mpi,1,mpi_character,master,mpi_comm_world,ierror)
  
   !Used to seed the RNG
   call cpu_time(timeseed)
-
-  !Seed rng with exp(my_rank+1) so each core has different seed
-  !call init_random_seed(int(exp(real(my_rank+1)))*nint(timeseed))
 
   !Master core does the following:
   if (my_rank == master) then
@@ -60,6 +51,7 @@ program main
 
      file_name = "message.txt"
 
+     !Start the timing
      time_start = omp_get_wtime()
      
      !Generate the original message matrix using the following subroutine
@@ -176,24 +168,23 @@ program main
 
      end if
 
+     !Else use the MPI version of row reduction
   else
 
     allocate(K_row_vec(N))
 
+    !Populate each core's section of K inverse with the corresponding section of the N by N identity matrix
     K_core_inv(:,:) = real(0,my_kind)
 
     do i=1,num_rows(my_rank+1)
        K_core_inv(i,start_vec(my_rank+1)+i-1) = real(1,my_kind)
     end do
 
-
-    !clearing the lower triangle
-    
+    !clear the lower triangle using row operations similar to the omp version    
     i = 1
     
     do while (i <= N)
 
-       
        if (i >= start_vec(my_rank+1) .and. i < start_vec(my_rank+1)+num_rows(my_rank+1)) then
 
           K_core_inv(i-start_vec(my_rank+1)+1,:) = 1/K_core(i-start_vec(my_rank+1)+1,i-start_vec(my_rank+1)+1)*&
@@ -201,20 +192,23 @@ program main
           K_core(i-start_vec(my_rank+1)+1,:) = 1/K_core(i-start_vec(my_rank+1)+1,i-start_vec(my_rank+1)+1)*&
                K_core(i-start_vec(my_rank+1)+1,:)
           
+          !K row vec below stores the scaled leading row
           K_row_vec = K_core(i-start_vec(my_rank+1)+1,:)
 
        end if
 
        do j = 0,num_cores-1
-
+          !Find the core that has the leading row to be broadcasted later
           if (i >= start_vec(j+1) .and. i < start_vec(j+1)+num_rows(my_rank+1)) then
              the_core = j
           end if
              
        end do
        
+       !Broadcast the leading, scaled row to all other cores from the_core as the source core
        call mpi_bcast(K_row_vec,N,mpi_double,the_core,mpi_comm_world,ierror)
 
+       !Clear out the entries below the leading 1 in K row vec
        if (i >= start_vec(my_rank+1) .and. i < start_vec(my_rank+1)+num_rows(my_rank+1)) then
 
           do j = i-start_vec(my_rank+1)+1,num_rows(my_rank+1)
@@ -223,7 +217,7 @@ program main
              K_core(j,:) = K_core(j,:) - K_row_vec*K_core(j,i)
 
           end do
-
+          !Else handle the case when its the last section of K
        else
           
           do j = 1,num_rows(my_rank+1)
@@ -234,19 +228,16 @@ program main
           end do
 
        end if
-
+       !Increment i each loop
           i = i + 1
        
     end do
-
     
-    !clearing the upper triangle
+    !clear the upper triangle using a similar tactic as clearing the lower triangle
     i = 1
     
     do while (i <= N)
 
-       
-       
        if (i >= start_vec(my_rank+1) .and. i < start_vec(my_rank+1)+num_rows(my_rank+1)) then
 
           K_core_inv(i-start_vec(my_rank+1)+1,:) = 1/K_core(i-start_vec(my_rank+1)+1,i-start_vec(my_rank+1)+1)*&
@@ -295,8 +286,6 @@ program main
     deallocate(K_row_vec)
     
  end if
-
-
        
   !Must make sure all cores are caught up before making the scatterv call
   call mpi_barrier(mpi_comm_world,ierror)
@@ -311,8 +300,7 @@ program main
   if (omp_or_mpi == 'o') then
      !Scatter the full K inv vector from master to all cores and call each core's portion K_core_inv_vec
      call mpi_scatterv(K_inv_vec,num_rows*N,(start_vec-1)*N,mpi_double,&
-          K_core_inv_vec,num_rows(my_rank+1)*N,mpi_double,master,mpi_comm_world,ierror)
- 
+          K_core_inv_vec,num_rows(my_rank+1)*N,mpi_double,master,mpi_comm_world,ierror) 
 
      !Now that the scatter call has been made, each core's portion of K_inv can be put back into 2-d form
      do i = 1,num_rows(my_rank+1)
@@ -321,7 +309,6 @@ program main
         end do
      end do
   end if
-
 
   !Put the encoded message portion (for each core) into 1-d vector form so they can be gathered
   do i = 1,num_rows(my_rank+1)
@@ -334,7 +321,6 @@ program main
   call mpi_allgatherv(E_vec,num_rows(my_rank+1)*msg_cols,mpi_double,E_whole_vec,num_rows*msg_cols,&
        (start_vec-1)*msg_cols,mpi_double,mpi_comm_world,ierror)
   
-  
   call mpi_barrier(mpi_comm_world,ierror)
   
   !Now we put the full encoded message matrix into 2-d matrix form
@@ -344,11 +330,8 @@ program main
      end do
   end do  
   
- 
   !Call the MPI parallel matrix mult. subroutine to get each core's portion of message matrix M
   call par_mat_mul(K_core_inv,E_whole,M_function)
-
-
  
   allocate(M_vec(num_rows(my_rank+1)*msg_cols))
   
@@ -418,6 +401,7 @@ program main
      deallocate(C)
      deallocate(M_whole)
      deallocate(M_whole_vec)
+
   end if
 
   !Deallocate the rest of the arrays that all cores used
