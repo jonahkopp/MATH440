@@ -18,13 +18,15 @@ On MIO:
 
 1. Get onto MIO and navigate to the same directory as above steps
 
-2. Type "mpiifort -c mod_file.f90" without quotes to compile the module file so that step 4  will work properly
+2. Type "module purge", hit Enter, type "module load StdEnv", hit Enter, type "module load impi/intel/latest", hit Enter (all without quotes) to load only necessary modules
 
-3. Type "emacs final_proj.slurm" without quotes to open the batch file, then change number of MIO nodes, number of tasks per node, and number of total tasks
+3. Type "mpiifort -c mod_file.f90" without quotes to compile the module file so that step 5 will work properly
+
+4. Type "emacs final_proj.slurm" without quotes to open the batch file, then change number of MIO nodes, number of tasks per node, and number of total tasks
    to whatever you'd like, so long as number of tasks per node is 16 or less and number of total tasks = number of nodes * number of tasks per node 
 
-4. Type "mpif90 -fopenmp mod_file.f90 main.f90 -o main_exe" without quotes to compile the main program and create main_exe
+5. Type "mpif90 -fopenmp mod_file.f90 main.f90 -o main_exe" without quotes to compile the main program and create main_exe
 
-5. Type "sbatch final_proj.slurm" without quotes to send the job to MIO
+6. Type "sbatch final_proj.slurm" without quotes to send the job to MIO
 
-6. Once job is finished, open con.out using a text editor to view the runtime and open the output.txt file to view the original message which has been encoded and decoded
+7. Once job is finished, open con.out using a text editor to view the runtime and open the output.txt file to view the original message which has been encoded and decoded
